@@ -30,13 +30,12 @@ func searchYoutube(query string) tea.Cmd {
 }
 // Model: holds your app's state
 type model struct {
-	count     int
-	textInput textinput.Model
-	editing   bool   // true when the search box is focused and taking input
-	output    string // stores result/error from pause()
-	selecting bool     // true when showing the results list
-	results   []string // parsed search results
-	cursor    int 
+	textInput  textinput.Model
+	editing    bool
+	selecting  bool
+	results    []string
+	cursor     int
+	nowPlaying string // title of the track currently playing
 }
 
 // initialModel just builds and returns the starting state.
@@ -81,23 +80,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		// If we're in "editing" mode, most keys should go to the text input,
 		// except a couple of special ones (esc to leave editing, enter to submit).
-		if m.editing {
-			switch msg.String() {
-			case "esc":
-				m.editing = false
-				m.textInput.Blur()
-				return m, nil
-			case "enter":
-				m.editing = false
-				m.textInput.Blur()
-				query := m.textInput.Value()
-				return m, searchYoutube(query)
-			}
-			// forward everything else (letters, backspace, etc.) to the text input
-			var cmd tea.Cmd
-			m.textInput, cmd = m.textInput.Update(msg)
-			return m, cmd
-		}
+if m.editing {
+	switch msg.String() {
+
+	case "esc":
+		m.editing = false
+		m.textInput.Blur()
+		return m, nil
+	case "enter":
+		m.editing = false
+		m.textInput.Blur()
+		query := m.textInput.Value()
+		return m, searchYoutube(query)
+	}
+	var cmd tea.Cmd
+	m.textInput, cmd = m.textInput.Update(msg)
+	return m, cmd
+}
+
 if m.selecting {
 	switch msg.String() {
 	case "up", "k":
@@ -111,9 +111,10 @@ if m.selecting {
 	case "enter":
 		m.selecting = false
 		selected := m.results[m.cursor]
-		// extract the URL — it's after " - " in your format string
 		parts := strings.Split(selected, " - ")
 		url := parts[len(parts)-1]
+		title := strings.Join(parts[:len(parts)-1], " - ")
+		m.nowPlaying = title
 		return m, playSelected(url)
 	case "esc":
 		m.selecting = false
@@ -124,25 +125,22 @@ if m.selecting {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
-		case "up", "k":
+		case "space"," ", "k":
 			return m, pause()
-		case "down", "j":
-			m.count--
 		case "s":
 			m.editing = true
 			m.textInput.Focus()
 			return m, textinput.Blink
 		}
+	
 	case searchResultsMsg:
 	m.results = []string(msg)
 	m.cursor = 0
 	m.selecting = true
 
-	case cmdOutputMsg:
-		m.output = string(msg)
 
 	case cmdErrMsg:
-		m.output = fmt.Sprintf("error: %v", msg.err)
+		m.nowPlaying = fmt.Sprintf("error: %v", msg.err)
 	}
 	return m, nil
 }
@@ -165,10 +163,10 @@ func (m model) View() string {
 	return s
 	}
 
-	return fmt.Sprintf(
-		"\n  Count: %d\n\n  Output: %s\n\n  ↑/k Play/Pause • ↓/j decrement • s to search • q to quit\n",
-		m.count, m.output,
-	)
+return fmt.Sprintf(
+	"\n  Now Playing: %s\n\n space to pause - s to search - q to quit\n",
+	m.nowPlaying,
+)
 }
 func main() {
 	p := tea.NewProgram(initialModel())
