@@ -1,0 +1,6 @@
+# Compiled binary (adjust name if you build with a different name)
+my-tui
+
+# OS/editor junk
+.DS_Store
+*.log
