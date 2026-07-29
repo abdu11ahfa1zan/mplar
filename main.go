@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os/exec"
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -17,6 +18,16 @@ func (m model) Init() tea.Cmd {
 	return nil
 }
 
+func pause() tea.Cmd {
+	return func() tea.Msg {
+		out, err := exec.Command("notify-send", "hellobrih").Output()
+		if err != nil {
+			return "yes error"
+		}
+		return string(out)
+	}
+}
+
 // Update: handles events (like keypresses) and returns an updated model
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -25,14 +36,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "up", "k":
-			m.count++
+			return m, pause()
 		case "down", "j":
 			m.count--
 		}
 	}
 	return m, nil
 }
-
 // View: renders the model as a string
 func (m model) View() string {
 	return fmt.Sprintf("\n  Count: %d\n\n  ↑/k increment • ↓/j decrement • q to quit\n", m.count)
