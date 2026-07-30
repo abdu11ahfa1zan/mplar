@@ -73,6 +73,15 @@ func playSelected(url string) tea.Cmd {
 		return cmdOutputMsg(string(out))
 	}
 }
+func quit() tea.Cmd {
+	return func() tea.Msg {
+		out, err := exec.Command("pkill", "mpv", "--no-video", "--input-ipc-server=/tmp/mpvsocket").Output()
+		if err != nil {
+			return cmdErrMsg{err}
+		}
+		return cmdOutputMsg(string(out))
+	}
+}
 // Update: handles events (like keypresses) and returns an updated model
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -124,6 +133,7 @@ if m.selecting {
 		// Not editing: treat keys as normal navigation/commands
 		switch msg.String() {
 		case "q", "ctrl+c":
+			quit() 
 			return m, tea.Quit
 		case "space"," ", "k":
 			return m, pause()
