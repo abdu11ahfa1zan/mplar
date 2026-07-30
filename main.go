@@ -5,11 +5,16 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"encoding/json"
+	"time"
 
+
+	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
 //search :
+
 type searchResultsMsg []string
 func searchYoutube(query string) tea.Cmd {
 	return func() tea.Msg {
@@ -28,25 +33,64 @@ func searchYoutube(query string) tea.Cmd {
 		return searchResultsMsg(lines)
 	}
 }
+
+
 // Model: holds your app's state
 type model struct {
-	textInput  textinput.Model
-	editing    bool
-	selecting  bool
-	results    []string
-	mpvPID 	   int
-	cursor     int
-	nowPlaying string // title of the track currently playing
+	textInput   textinput.Model
+	editing     bool
+	selecting   bool
+	volume 		int
+	results     []string
+	progress    progress.Model
+	position    float64 
+	duration    float64
+	mpvPID 	    int
+	cursor      int
+	nowPlaying  string 
+}
+type positionMsg struct {
+	position float64
+	duration float64
+}
+func getPosition() tea.Cmd {
+	return func() tea.Msg {
+		posOut, err := exec.Command("bash", "-c",
+			`echo '{ "command": ["get_property", "time-pos"] }' | socat - /tmp/mpvsocket`).Output()
+		if err != nil {
+			return cmdErrMsg{err}
+		}
+		durOut, err := exec.Command("bash", "-c",
+			`echo '{ "command": ["get_property", "duration"] }' | socat - /tmp/mpvsocket`).Output()
+		if err != nil {
+			return cmdErrMsg{err}
+		}
+		var posResp, durResp struct {
+			Data float64 `json:"data"`
+		}
+		json.Unmarshal(posOut, &posResp)
+		json.Unmarshal(durOut, &durResp)
+
+		return positionMsg{position: posResp.Data, duration: durResp.Data}
+	}
+}
+func tickCmd() tea.Cmd {
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+		return tickMsg(t)	
+	})
 }
 
+type tickMsg time.Time
 // initialModel just builds and returns the starting state.
 // It does NOT start the program — that's main()'s job.
 func initialModel() model {
 	ti := textinput.New()
 	ti.Placeholder = "Type something..."
-	return model{textInput: ti}
+	return model{
+		textInput: ti,
+		progress:  progress.New(progress.WithDefaultGradient()),
+	}
 }
-
 // Init: runs once when the program starts (no initial command needed here)
 func (m model) Init() tea.Cmd {
 	return nil
@@ -85,7 +129,7 @@ func ha10() tea.Cmd {
 }
 func va10() tea.Cmd {
 	return func() tea.Msg {
-		out, err := exec.Command("bash", "-c", `echo '{ "command": ["add", "volume", "-10"] }' | socat - /tmp/mpvsocket`).Output()
+		out, err := exec.Command("bash", "-c", `echo '{ "command": ["add", "volume", "-5:"] }' | socat - /tmp/mpvsocket`).Output()
 		if err != nil {
 			return cmdErrMsg{err}
 		}
@@ -94,7 +138,7 @@ func va10() tea.Cmd {
 }
 func v10() tea.Cmd {
 	return func() tea.Msg {
-		out, err := exec.Command("bash", "-c", `echo '{ "command": ["add", "volume", "+10"] }' | socat - /tmp/mpvsocket`).Output()
+		out, err := exec.Command("bash", "-c", `echo '{ "command": ["add", "volume", "+5"] }' | socat - /tmp/mpvsocket`).Output()
 		if err != nil {
 			return cmdErrMsg{err}
 		}
@@ -125,7 +169,7 @@ func quit(pid int) tea.Cmd {
 		return cmdOutputMsg(string(out))
 	}
 }
-// Update: handles events (like keypresses) and returns an updated model
+// ###########################################   Update: handles events (like keypresses) and returns an updated model
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
@@ -184,8 +228,27 @@ if m.selecting {
 			m.textInput.Focus()
 			return m, textinput.Blink
 		case "down", "j":
-			return m, va10()
-		case "up", "k":
+    // Only lower the volume if it's strictly greater than 0
+    if m.volume > 0 {
+        m.volume -= 5
+        // Optional safety clamp if m.volume was e.g. 3
+        if m.volume < 0 {
+            m.volume = 0
+        }
+        return m, va10()
+    }
+    return m, nil // Volume is already 0, do nothing
+
+case "up", "k":
+    // Prevent the volume from exceeding 100%
+    if m.volume < 130 {
+        m.volume += 5
+	        if m.volume > 130 {
+            m.volume = 130
+        }
+        return m, v10()
+    }
+    return m, nil // Volume is already 100, do nothing
 			return m, v10()
 		case "right", "l":
 			return m, ha10()
@@ -199,14 +262,34 @@ if m.selecting {
 
 	case mpvStartedMsg:
 	m.mpvPID = int(msg)
+	m.volume = 100
+	return m, tickCmd()
 
 	case cmdErrMsg:
 		m.nowPlaying = fmt.Sprintf("error: %v", msg.err)
+
+
+	case tickMsg: 
+		return m, tea.Batch(getPosition(), tickCmd())
+
+	case positionMsg: 
+		m.position = msg.position
+		m.duration = msg.duration
+		if m.duration > 0 {
+			cmd := m.progress.SetPercent(m.position / m.duration)
+			return m, cmd
+		}
+	case progress.FrameMsg: 
+		newModel, cmd := m.progress.Update(msg)
+		if newM, ok := newModel.(progress.Model); ok {
+			m.progress = newM
+		}
+		return m, cmd
 	}
 	return m, nil
 }
 
-// View: renders the model as a string
+// #################################################### View: renders the model as a string
 func (m model) View() string {
 	if m.editing {
 		return fmt.Sprintf("\n  Search: %s\n\n  (enter to submit, esc to cancel)\n", m.textInput.View())
@@ -225,8 +308,10 @@ func (m model) View() string {
 	}
 
 return fmt.Sprintf(
-	"\n  Now Playing: %s\n\n space to pause - s to search - q to quit\n",
+	"\n  Now Playing: %s\n\n%s\nVolume: %d\n\nspace to pause - Up/Down to Increase/Decrease volume - Right/Left to skip/go back 5s \ns to search - q to quit\n\n",
 	m.nowPlaying,
+	m.progress.View(),
+	m.volume,
 )
 }
 func main() {
