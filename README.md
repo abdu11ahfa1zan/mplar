@@ -59,17 +59,6 @@ go build -o mplar
 ./mplar
 ```
 
-## Keybindings
-
-| Key            | Action                              |
-|----------------|--------------------------------------|
-| `s`            | Open the search bar                 |
-| `enter`        | Submit search / play selected result |
-| `↑` / `k`      | Move up / play-pause (context-dependent) |
-| `↓` / `j`      | Move down / decrement                |
-| `esc`          | Cancel search or exit result list    |
-| `q` / `ctrl+c` | Quit                                 |
-
 ## How it works
 
 - Searching runs `yt-dlp` in `ytsearch` mode and parses the titles/links into a scrollable list.
