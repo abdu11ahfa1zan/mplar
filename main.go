@@ -34,6 +34,7 @@ type model struct {
 	editing    bool
 	selecting  bool
 	results    []string
+	mpvPID 	   int
 	cursor     int
 	nowPlaying string // title of the track currently playing
 }
@@ -64,18 +65,60 @@ func pause() tea.Cmd {
 		return cmdOutputMsg(string(out))
 	}
 }
-func playSelected(url string) tea.Cmd {
+func h10() tea.Cmd {
 	return func() tea.Msg {
-		out, err := exec.Command("mpv", "--no-video", "--input-ipc-server=/tmp/mpvsocket", url).Output()
+		out, err := exec.Command("bash", "-c", `echo '{ "command": ["seek", "-5"] }' | socat - /tmp/mpvsocket`).Output()
 		if err != nil {
 			return cmdErrMsg{err}
 		}
 		return cmdOutputMsg(string(out))
 	}
 }
-func quit() tea.Cmd {
+func ha10() tea.Cmd {
 	return func() tea.Msg {
-		out, err := exec.Command("pkill", "mpv", "--no-video", "--input-ipc-server=/tmp/mpvsocket").Output()
+		out, err := exec.Command("bash", "-c", `echo '{ "command": ["seek", "5"] }' | socat - /tmp/mpvsocket`).Output()
+		if err != nil {
+			return cmdErrMsg{err}
+		}
+		return cmdOutputMsg(string(out))
+	}
+}
+func va10() tea.Cmd {
+	return func() tea.Msg {
+		out, err := exec.Command("bash", "-c", `echo '{ "command": ["add", "volume", "-10"] }' | socat - /tmp/mpvsocket`).Output()
+		if err != nil {
+			return cmdErrMsg{err}
+		}
+		return cmdOutputMsg(string(out))
+	}
+}
+func v10() tea.Cmd {
+	return func() tea.Msg {
+		out, err := exec.Command("bash", "-c", `echo '{ "command": ["add", "volume", "+10"] }' | socat - /tmp/mpvsocket`).Output()
+		if err != nil {
+			return cmdErrMsg{err}
+		}
+		return cmdOutputMsg(string(out))
+	}
+}
+type mpvStartedMsg int
+
+func playSelected(url string) tea.Cmd {
+	return func() tea.Msg {
+		cmd := exec.Command("mpv", "--no-video", "--input-ipc-server=/tmp/mpvsocket", url)
+		if err := cmd.Start(); err != nil {
+			return cmdErrMsg{err}
+		}
+		
+		return mpvStartedMsg(cmd.Process.Pid)
+	}
+}
+func quit(pid int) tea.Cmd {
+	return func() tea.Msg {
+		if pid == 0 {
+			return cmdOutputMsg("") // nothing was ever started
+		}
+		out, err := exec.Command("kill", fmt.Sprintf("%d", pid)).Output()
 		if err != nil {
 			return cmdErrMsg{err}
 		}
@@ -133,21 +176,29 @@ if m.selecting {
 		// Not editing: treat keys as normal navigation/commands
 		switch msg.String() {
 		case "q", "ctrl+c":
-			quit() 
-			return m, tea.Quit
-		case "space"," ", "k":
+			return m, tea.Sequence(quit(m.mpvPID), tea.Quit)
+		case "space"," ", "p":
 			return m, pause()
 		case "s":
 			m.editing = true
 			m.textInput.Focus()
 			return m, textinput.Blink
+		case "down", "j":
+			return m, va10()
+		case "up", "k":
+			return m, v10()
+		case "right", "l":
+			return m, ha10()
+		case "left", "h":
+			return m, h10()
 		}
-	
 	case searchResultsMsg:
 	m.results = []string(msg)
 	m.cursor = 0
 	m.selecting = true
 
+	case mpvStartedMsg:
+	m.mpvPID = int(msg)
 
 	case cmdErrMsg:
 		m.nowPlaying = fmt.Sprintf("error: %v", msg.err)
