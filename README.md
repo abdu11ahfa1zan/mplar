@@ -64,7 +64,7 @@ go build -o mplar
 - Searching runs `yt-dlp` in `ytsearch` mode and parses the titles/links into a scrollable list.
 - Selecting a result launches `mpv` in the background with `--no-video` and `--input-ipc-server=/tmp/mpvsocket`, so it plays audio only and exposes a control socket.
 - Playback controls (pause, volume, seek) are sent as JSON commands to that socket via `socat`, so the same running `mpv` process can be controlled without restarting it.
-
+- to use playlists, paste a link of one into the link section.
 **Note:** only one `mpv` instance should use `/tmp/mpvsocket` at a time — starting a second track while one is already playing may conflict on the socket path.
 
 ## License
