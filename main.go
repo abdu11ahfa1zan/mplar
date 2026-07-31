@@ -38,6 +38,7 @@ func searchYoutube(query string) tea.Cmd {
 // Model: holds your app's state
 type model struct {
 	textInput   textinput.Model
+	linking 	bool
 	editing     bool
 	selecting   bool
 	volume 		int
@@ -129,7 +130,7 @@ func ha10() tea.Cmd {
 }
 func va10() tea.Cmd {
 	return func() tea.Msg {
-		out, err := exec.Command("bash", "-c", `echo '{ "command": ["add", "volume", "-5:"] }' | socat - /tmp/mpvsocket`).Output()
+		out, err := exec.Command("bash", "-c", `echo '{ "command": ["add", "volume", "-5"] }' | socat - /tmp/mpvsocket`).Output()
 		if err != nil {
 			return cmdErrMsg{err}
 		}
@@ -173,9 +174,26 @@ func quit(pid int) tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
-	case tea.KeyMsg:
-		// If we're in "editing" mode, most keys should go to the text input,
-		// except a couple of special ones (esc to leave editing, enter to submit).
+	case tea.KeyMsg:	// If we're in "editing" mode, most keys should go to the text input,
+		if m.linking {
+			switch msg.String() {
+			case "esc":
+				m.linking = false
+				m.textInput.Blur()
+				m.textInput.SetValue("")
+				return m, nil
+			case "enter":
+				m.linking = false
+				m.textInput.Blur()
+				url := m.textInput.Value()
+				m.textInput.SetValue("")
+				m.nowPlaying = url
+				return m, playSelected(url)
+			}
+			var cmd tea.Cmd
+			m.textInput, cmd = m.textInput.Update(msg)
+			return m, cmd
+		}
 if m.editing {
 	switch msg.String() {
 
@@ -193,7 +211,6 @@ if m.editing {
 	m.textInput, cmd = m.textInput.Update(msg)
 	return m, cmd
 }
-
 if m.selecting {
 	switch msg.String() {
 	case "up", "k":
@@ -225,32 +242,36 @@ if m.selecting {
 			return m, pause()
 		case "s":
 			m.editing = true
+			m.textInput.Placeholder = "type something..."
 			m.textInput.Focus()
 			return m, textinput.Blink
+		case "l":
+			m.linking = true
+			m.textInput.Placeholder = "Paste a link (can use playlist links)"
+			m.textInput.Focus()
+			return m, textinput.Blink
+
 		case "down", "j":
-    // Only lower the volume if it's strictly greater than 0
-    if m.volume > 0 {
-        m.volume -= 5
-        // Optional safety clamp if m.volume was e.g. 3
-        if m.volume < 0 {
-            m.volume = 0
+	    	if m.volume > 0 {
+    	    	m.volume -= 5
+        	if m.volume < 0 {
+           		m.volume = 0
         }
         return m, va10()
     }
-    return m, nil // Volume is already 0, do nothing
+    return m, nil 
 
-case "up", "k":
-    // Prevent the volume from exceeding 100%
-    if m.volume < 130 {
-        m.volume += 5
-	        if m.volume > 130 {
+		case "up", "k":
+    	if m.volume < 130 {
+	        m.volume += 5
+        if m.volume > 130 {
             m.volume = 130
         }
         return m, v10()
     }
-    return m, nil // Volume is already 100, do nothing
+    return m, nil 
 			return m, v10()
-		case "right", "l":
+		case "right":
 			return m, ha10()
 		case "left", "h":
 			return m, h10()
@@ -305,6 +326,9 @@ func (m model) View() string {
 	}
 	s += "\n  ↑/k up • ↓/j down • enter to play • esc to cancel\n"
 	return s
+	}
+	if m.linking {
+		return fmt.Sprintf("\n Paste link: %s \n\n (enter to play, esc to cancel)\n", m.textInput.View())
 	}
 
 return fmt.Sprintf(
